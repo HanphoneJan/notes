@@ -10,6 +10,11 @@ const BASE_PATH = '/notes';
 const app = express();
 const port = process.env.PORT || 6060;
 
+// 关键修复：设置静态文件目录为当前脚本所在目录
+// 并通过子路径访问静态资源
+const currentDir = path.dirname(__filename);
+app.use(BASE_PATH, express.static(currentDir));
+
 // 用于保存笔记的目录路径
 const SAVE_PATH = '_tmp';
 
@@ -160,7 +165,7 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
         }
     }
 
-    // 处理原始内容请求（保持不变）
+    // 处理原始内容请求
     const isRaw = req.query.raw !== undefined;
     const userAgent = req.get('User-Agent') || '';
     const isCurlOrWget = userAgent.startsWith('curl') || userAgent.startsWith('Wget');
@@ -194,7 +199,7 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
         console.error('读取文件错误:', err);
     }
 
-    // 转义HTML特殊字符（保持不变）
+    // 转义HTML特殊字符
     const escapeHtml = (str) => {
         return str.replace(/[&<>"']/g, (char) => {
             const entities = {
@@ -208,7 +213,7 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
         });
     };
 
-    // 密码保护页面HTML（保持不变）
+    // 密码保护页面HTML
     const passwordFormHtml = metaData.hasPassword ? `
         <div id="password-protection" class="password-overlay">
             <div class="password-form">
@@ -220,7 +225,7 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
         </div>
     ` : '';
 
-    // 密码设置区域HTML（保持不变）
+    // 密码设置区域HTML
     const passwordSettingsHtml = `
         <div class="password-settings">
             <h3>密码保护</h3>
@@ -242,13 +247,13 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
         </div>
     `;
 
-    // 关键修改：HTML中的所有请求路径都要加上子路径前缀
+    // 关键修改：使用子路径引用favicon
     const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${noteName}</title>
+<title>Note</title>
 <link rel="icon" href="${BASE_PATH}/favicon.ico" sizes="any">
 <link rel="icon" href="${BASE_PATH}/favicon.svg" type="image/svg+xml">
 <style>
@@ -406,7 +411,7 @@ ${passwordFormHtml}
 </div>
 
 <script>
-// 关键修改：JavaScript中的请求URL需要加上子路径前缀
+// JavaScript代码保持不变
 const basePath = '${BASE_PATH}';
 let content = '${escapeHtml(content)}';
 let passwordVerified = ${!metaData.hasPassword ? 'true' : 'false'};
@@ -480,7 +485,7 @@ function savePassword() {
     });
 }
 
-// 清除密码（修改请求URL）
+// 清除密码
 function clearPassword() {
     if (confirm('确定要移除密码保护吗？')) {
         fetch(\`\${basePath}/\${noteName}\`, {
@@ -505,7 +510,7 @@ function clearPassword() {
     }
 }
 
-// 自动保存内容（修改请求URL）
+// 自动保存内容
 function uploadContent() {
     if (!passwordVerified) {
         setTimeout(uploadContent, 1000);
@@ -540,7 +545,7 @@ function uploadContent() {
     }
 }
 
-// 初始化（保持不变）
+// 初始化
 document.getElementById('content').value = passwordVerified ? content : '';
 document.getElementById('printable').textContent = content;
 if (passwordVerified) {
