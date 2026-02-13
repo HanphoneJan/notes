@@ -106,6 +106,52 @@ const getContentFilePath = (noteName) => {
     return path.join(SAVE_PATH, noteName);
 };
 
+// 更新笔记访问时间，用于 30 天自动清理判断
+const touchNote = (noteName) => {
+    const now = Date.now() / 1000;
+    const cf = getContentFilePath(noteName);
+    const mf = getMetaFilePath(noteName);
+    Promise.all([
+        existsSync(cf) ? fs.utimes(cf, now, now) : Promise.resolve(),
+        existsSync(mf) ? fs.utimes(mf, now, now) : Promise.resolve()
+    ]).catch(() => {});
+};
+
+// 30 天未访问自动清理（持久化笔记不清理）
+const CLEANUP_DAYS = parseInt(process.env.NOTE_CLEANUP_DAYS, 10) || 30;
+const runCleanup = async () => {
+    try {
+        const files = await fs.readdir(SAVE_PATH);
+        const noteNames = new Set();
+        files.forEach(f => {
+            if (f.endsWith('.meta')) noteNames.add(f.slice(0, -5));
+            else if (!f.startsWith('.')) noteNames.add(f);
+        });
+        const cutoff = Date.now() - CLEANUP_DAYS * 24 * 60 * 60 * 1000;
+        for (const name of noteNames) {
+            let metaData = { persistent: false };
+            const mf = getMetaFilePath(name);
+            if (existsSync(mf)) {
+                try {
+                    const m = JSON.parse(await fs.readFile(mf, 'utf8'));
+                    if (m.persistent) continue;
+                } catch { /* 读取失败则继续检查 mtime */ }
+            }
+            const cf = getContentFilePath(name);
+            const getMtime = async (p) => existsSync(p) ? (await fs.stat(p)).mtimeMs : 0;
+            const mtime = Math.max(await getMtime(cf), await getMtime(mf));
+            if (mtime > 0 && mtime < cutoff) {
+                if (existsSync(cf)) await fs.unlink(cf);
+                if (existsSync(mf)) await fs.unlink(mf);
+                noteWriteChains.delete(name);
+            }
+        }
+    } catch (err) {
+        console.error('清理任务错误:', err);
+    }
+};
+setInterval(runCleanup, 60 * 60 * 1000);
+
 // 根路径重定向到子路径下的新笔记
 app.all('/', (req, res) => {
     res.redirect(BASE_PATH);
@@ -138,6 +184,8 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
             console.error('读取元数据错误:', err);
         }
     }
+
+    touchNote(noteName);
 
     // 处理POST请求
     if (req.method === 'POST') {
@@ -181,6 +229,10 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
             } else if (req.body.clearPassword === 'true') {
                 metaData.hasPassword = false;
                 metaData.passwordHash = '';
+                await fs.writeFile(metaFilePath, JSON.stringify(metaData), 'utf8');
+            }
+            if (req.body.setPersistent !== undefined) {
+                metaData.persistent = req.body.setPersistent === true || req.body.setPersistent === 'true';
                 await fs.writeFile(metaFilePath, JSON.stringify(metaData), 'utf8');
             }
 
@@ -304,6 +356,13 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
                     <button onclick="clearPassword()" class="danger">清除密码</button>
                 </div>
             </div>
+            <div class="setting-row" style="margin-top:15px;padding-top:15px;border-top:1px solid #eee">
+                <label style="display:block">
+                    <input type="checkbox" id="persistent" ${metaData.persistent ? 'checked' : ''} onchange="savePersistent()">
+                    持久化保存
+                    <span class="setting-hint">不开启则 30 天自动清理</span>
+                </label>
+            </div>
         </div>
     `;
 
@@ -417,6 +476,12 @@ body {
 .setting-row {
     margin-bottom: 10px;
 }
+.setting-hint {
+    display: block;
+    font-size: 0.85em;
+    color: #666;
+    margin-top: 4px;
+}
 .setting-row button {
     margin-right: 5px;
     padding: 5px 10px;
@@ -445,6 +510,9 @@ body {
         background: #24262b;
         color: #fff;
         border-color: #495265;
+    }
+    .setting-hint {
+        color: #aaa;
     }
 }
 @media print {
@@ -547,6 +615,28 @@ function savePassword() {
             alert('设置失败，请重试');
         }
     });
+}
+
+// 保存持久化选项
+function savePersistent() {
+    const checked = document.getElementById('persistent').checked;
+    fetch(\`\${basePath}/\${noteName}\`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            setPersistent: checked,
+            passwordVerified: passwordVerified
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // 无感，无需提示
+        } else {
+            document.getElementById('persistent').checked = !checked;
+        }
+    })
+    .catch(() => { document.getElementById('persistent').checked = !checked; });
 }
 
 // 清除密码
