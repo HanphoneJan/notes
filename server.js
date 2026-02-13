@@ -18,6 +18,24 @@ app.use(BASE_PATH, express.static(currentDir));
 // 用于保存笔记的目录路径
 const SAVE_PATH = '_tmp';
 
+// 刷新令牌：验证密码后用于定期拉取内容，5分钟有效
+const REFRESH_SECRET = process.env.NOTE_REFRESH_SECRET || 'default-secret';
+const REFRESH_TTL_MS = 5 * 60 * 1000;
+const createRefreshToken = (noteName) => {
+    const expiry = Date.now() + REFRESH_TTL_MS;
+    const sig = crypto.createHmac('sha256', REFRESH_SECRET).update(`${noteName}:${expiry}`).digest('hex');
+    return Buffer.from(`${noteName}:${expiry}:${sig}`).toString('base64url');
+};
+const verifyRefreshToken = (token, noteName) => {
+    try {
+        const decoded = Buffer.from(token, 'base64url').toString();
+        const [name, expiry, sig] = decoded.split(':');
+        if (name !== noteName || Date.now() > parseInt(expiry, 10)) return false;
+        const expected = crypto.createHmac('sha256', REFRESH_SECRET).update(`${noteName}:${expiry}`).digest('hex');
+        return sig === expected;
+    } catch { return false; }
+};
+
 // 确保保存目录存在
 if (!existsSync(SAVE_PATH)) {
     fs.mkdir(SAVE_PATH, { recursive: true }).catch(err => 
@@ -145,7 +163,8 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
                     } catch (err) {
                         console.error('读取文件错误:', err);
                     }
-                    return res.json({ success: true, content: noteContent });
+                    const refreshToken = createRefreshToken(noteName);
+                    return res.json({ success: true, content: noteContent, refreshToken });
                 }
             } catch (err) {
                 console.error('密码验证错误:', err);
@@ -182,6 +201,25 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
                 return res.status(500).json({ success: false });
             }
         });
+    }
+
+    // 处理 JSON 内容拉取（用于前端定时刷新）
+    if (req.method === 'GET' && req.query.format === 'json') {
+        if (metaData.hasPassword) {
+            const token = req.query.refreshToken;
+            if (!token || !verifyRefreshToken(token, noteName)) {
+                return res.status(401).json({ error: '需要刷新令牌' });
+            }
+        }
+        try {
+            const noteContent = existsSync(contentFilePath)
+                ? await fs.readFile(contentFilePath, 'utf8')
+                : '';
+            return res.json({ content: noteContent });
+        } catch (err) {
+            console.error('读取文件错误:', err);
+            return res.status(500).json({ error: '读取失败' });
+        }
     }
 
     // 处理原始内容请求
@@ -437,6 +475,7 @@ ${passwordFormHtml}
 const basePath = '${BASE_PATH}';
 let content = '${escapeHtml(content)}';
 let passwordVerified = ${!metaData.hasPassword ? 'true' : 'false'};
+let refreshToken = null;
 const noteName = '${noteName}';
 
 // 显示/隐藏设置面板
@@ -469,6 +508,7 @@ function verifyPassword() {
         if (data.success) {
             passwordVerified = true;
             content = data.content || '';
+            refreshToken = data.refreshToken || null;
             document.getElementById('password-protection').style.display = 'none';
             document.getElementById('content').value = content;
             document.getElementById('printable').textContent = content;
@@ -533,6 +573,31 @@ function clearPassword() {
         });
     }
 }
+
+// 定期无感拉取最新内容（仅在没有本地编辑时更新）
+function refreshContent() {
+    if (!passwordVerified) return;
+    const textarea = document.getElementById('content');
+    if (content !== textarea.value) return;
+    const url = refreshToken
+        ? \`\${basePath}/\${noteName}?format=json&refreshToken=\${encodeURIComponent(refreshToken)}\`
+        : \`\${basePath}/\${noteName}?format=json\`;
+    fetch(url)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+            if (!data || data.content === undefined) return;
+            const serverContent = data.content || '';
+            if (serverContent === content) return;
+            const scrollTop = textarea.scrollTop;
+            content = serverContent;
+            textarea.value = serverContent;
+            document.getElementById('printable').textContent = serverContent;
+            textarea.scrollTop = scrollTop;
+            textarea.setSelectionRange(serverContent.length, serverContent.length);
+        })
+        .catch(() => {});
+}
+setInterval(refreshContent, 5000);
 
 // 自动保存内容
 function uploadContent() {
