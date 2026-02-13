@@ -126,9 +126,17 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
                     return res.status(401).json({ success: false, reason: '密码错误' });
                 }
                 
-                // 如果是验证密码，不处理内容
+                // 如果是验证密码，验证成功后返回内容供前端显示
                 if (req.body.action === 'verifyPassword') {
-                    return res.json({ success: true });
+                    let noteContent = '';
+                    try {
+                        if (existsSync(contentFilePath)) {
+                            noteContent = await fs.readFile(contentFilePath, 'utf8');
+                        }
+                    } catch (err) {
+                        console.error('读取文件错误:', err);
+                    }
+                    return res.json({ success: true, content: noteContent });
                 }
             } catch (err) {
                 console.error('密码验证错误:', err);
@@ -190,13 +198,16 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
     }
 
     // 处理HTML页面请求
+    // 安全修复：有密码保护时，不读取内容，避免在未验证前泄露
     let content = '';
-    try {
-        if (existsSync(contentFilePath)) {
-            content = await fs.readFile(contentFilePath, 'utf8');
+    if (!metaData.hasPassword) {
+        try {
+            if (existsSync(contentFilePath)) {
+                content = await fs.readFile(contentFilePath, 'utf8');
+            }
+        } catch (err) {
+            console.error('读取文件错误:', err);
         }
-    } catch (err) {
-        console.error('读取文件错误:', err);
     }
 
     // 转义HTML特殊字符
@@ -446,8 +457,10 @@ function verifyPassword() {
     .then(data => {
         if (data.success) {
             passwordVerified = true;
+            content = data.content || '';
             document.getElementById('password-protection').style.display = 'none';
             document.getElementById('content').value = content;
+            document.getElementById('printable').textContent = content;
         } else {
             errorDiv.textContent = '密码错误，请重试';
         }
