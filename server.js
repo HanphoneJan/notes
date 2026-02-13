@@ -70,6 +70,15 @@ const verifyPassword = (password, hash) => {
     });
 };
 
+// 按笔记串行化写操作，避免并发写导致数据损坏
+const noteWriteChains = new Map();
+const withNoteWriteLock = (noteName, fn) => {
+    const prev = noteWriteChains.get(noteName) || Promise.resolve();
+    const chain = prev.then(() => fn());
+    noteWriteChains.set(noteName, chain);
+    return chain;
+};
+
 // 获取笔记文件路径
 const getMetaFilePath = (noteName) => {
     return path.join(SAVE_PATH, `${noteName}.meta`);
@@ -144,33 +153,35 @@ app.all(`${BASE_PATH}/:note`, async (req, res) => {
             }
         }
 
-        // 处理密码设置和内容保存
-        if (req.body.password) {
-            metaData.hasPassword = true;
-            metaData.passwordHash = await hashPassword(req.body.password);
-            await fs.writeFile(metaFilePath, JSON.stringify(metaData), 'utf8');
-        } else if (req.body.clearPassword === 'true') {
-            metaData.hasPassword = false;
-            metaData.passwordHash = '';
-            await fs.writeFile(metaFilePath, JSON.stringify(metaData), 'utf8');
-        }
+        // 所有写操作串行化，避免并发写导致数据损坏
+        return withNoteWriteLock(noteName, async () => {
+            if (req.body.password) {
+                metaData.hasPassword = true;
+                metaData.passwordHash = await hashPassword(req.body.password);
+                await fs.writeFile(metaFilePath, JSON.stringify(metaData), 'utf8');
+            } else if (req.body.clearPassword === 'true') {
+                metaData.hasPassword = false;
+                metaData.passwordHash = '';
+                await fs.writeFile(metaFilePath, JSON.stringify(metaData), 'utf8');
+            }
 
-        const text = req.body.text;
-        try {
-            if (text !== undefined) {
-                if (text) {
-                    await fs.writeFile(contentFilePath, text, 'utf8');
-                } else {
-                    if (existsSync(contentFilePath)) {
-                        await fs.unlink(contentFilePath);
+            const text = req.body.text;
+            try {
+                if (text !== undefined) {
+                    if (text) {
+                        await fs.writeFile(contentFilePath, text, 'utf8');
+                    } else {
+                        if (existsSync(contentFilePath)) {
+                            await fs.unlink(contentFilePath);
+                        }
                     }
                 }
+                return res.json({ success: true });
+            } catch (err) {
+                console.error('保存文件错误:', err);
+                return res.status(500).json({ success: false });
             }
-            return res.json({ success: true });
-        } catch (err) {
-            console.error('保存文件错误:', err);
-            return res.status(500).json({ success: false });
-        }
+        });
     }
 
     // 处理原始内容请求
