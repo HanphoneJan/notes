@@ -56,7 +56,7 @@ node server.js
 - 🔒 加密：Node.js 内置 crypto 模块（pbkdf2 算法）
 - 🎨 前端：极简 HTML/CSS/JavaScript（继承自原项目）
 
-## 许可证
+## 📊 Star History
 
-![MIT License](https://img.shields.io/badge/license-MIT-green.svg)
+[![Star History Chart](https://api.star-history.com/svg?repos=HanphoneJan/hanphone-blog-server&type=Date)](https://star-history.com/#HanphoneJan/hanphone-blog-server&Date)
 
