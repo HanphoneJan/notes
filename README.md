@@ -56,7 +56,12 @@ node server.js
 - 🔒 加密：Node.js 内置 crypto 模块（pbkdf2 算法）
 - 🎨 前端：极简 HTML/CSS/JavaScript（继承自原项目）
 
-## 📊 Star History
+## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=HanphoneJan/hanphone-blog-server&type=Date)](https://star-history.com/#HanphoneJan/hanphone-blog-server&Date)
-
+<a href="https://www.star-history.com/?repos=HanphoneJan%2Fnotes&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=HanphoneJan/notes&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=HanphoneJan/notes&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=HanphoneJan/notes&type=date&legend=top-left" />
+ </picture>
+</a>
